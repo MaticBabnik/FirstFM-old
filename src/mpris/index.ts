@@ -1,34 +1,37 @@
 import { EventEmitter } from 'node:events';
 import DBus, { getBus, DBusConnection } from "dbus";
+
+import { MprisPlayer } from './player';
 import { promisify } from './dbus-util';
+import { DBusInterface } from "./dbus-types"
+import { DBUS_INTERFACE, DBUS_PATH, DBUS_SERVICE, MPRIS_PREFIX } from './constants';
 
 
-interface DBusInterface extends EventEmitter {
-    ListNames: (cb: (err: any, res: string[]) => any) => any;
-}
 
-const MPRIS_PREFIX = "org.mpris.MediaPlayer2.";
+
 
 export class Mpris {
-    public players: string[];
+    public players: Map<string, MprisPlayer>;
 
     protected constructor(protected connection: DBusConnection, protected dbus: DBus.DBusInterface<DBusInterface>) {
-        this.players = [];
+        this.players = new Map<string, MprisPlayer>();
     }
 
     protected destroyPlayer(id: string) {
         console.log({ type: "destroyPlayer", id });
+        this.players.delete(id);
     }
 
-    protected createPlayer(id: string) {
+    protected async createPlayer(id: string) {
         console.log({ type: "createPlayer", id });
+        this.players.set(id, await MprisPlayer.fromName(id, this.connection));
     }
 
     public async initPlayers() {
         const allNames = await promisify(this.dbus.ListNames.bind(this.dbus))();
-        this.players = allNames.filter(name => name.startsWith(MPRIS_PREFIX)).map(name => name.substring(MPRIS_PREFIX.length));
+        const playerNames = allNames.filter(name => name.startsWith(MPRIS_PREFIX)).map(name => name.substring(MPRIS_PREFIX.length));
 
-        this.players.forEach(id => this.createPlayer(id));
+        playerNames.forEach(id => this.createPlayer(id));
 
         this.dbus.on("NameOwnerChanged", (name, ownerOld, ownerNew) => {
             if (!name.startsWith(MPRIS_PREFIX))
@@ -45,7 +48,7 @@ export class Mpris {
 
     public static async create() {
         const conn = getBus("session");
-        const dbus = await promisify(conn.getInterface<DBusInterface>.bind(conn))("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
+        const dbus = await promisify(conn.getInterface<DBusInterface>.bind(conn))(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE);
 
         const mpris = new Mpris(conn, dbus);
         await mpris.initPlayers();

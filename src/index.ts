@@ -1,4 +1,9 @@
-import {Mpris} from "./mpris"
+import { Mpris } from "./mpris"
 
 
-Mpris.create();
+Mpris.create().then(mpris => {
+    setInterval(() => {
+        console.log(mpris.players);
+
+    }, 10000)
+})

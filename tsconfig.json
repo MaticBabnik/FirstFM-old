@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2016",
+    "target": "ES2022",
     "experimentalDecorators": true,
-    "module": "commonjs",
+    "module": "NodeNext",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
