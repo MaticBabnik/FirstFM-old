@@ -2,13 +2,9 @@ import { EventEmitter } from 'node:events';
 import DBus, { getBus, DBusConnection } from "dbus";
 
 import { MprisPlayer } from './player';
-import { promisify } from './dbus-util';
+import { promisify } from './util';
 import { DBusInterface } from "./dbus-types"
 import { DBUS_INTERFACE, DBUS_PATH, DBUS_SERVICE, MPRIS_PREFIX } from './constants';
-
-
-
-
 
 export class Mpris {
     public players: Map<string, MprisPlayer>;
@@ -23,8 +19,13 @@ export class Mpris {
     }
 
     protected async createPlayer(id: string) {
-        console.log({ type: "createPlayer", id });
-        this.players.set(id, await MprisPlayer.fromName(id, this.connection));
+        try {
+            const player = await MprisPlayer.fromName(id, this.connection);
+
+            this.players.set(id, player);
+        } catch {
+            console.log(`Could not create player ${id}`);
+        }
     }
 
     public async initPlayers() {
@@ -48,7 +49,9 @@ export class Mpris {
 
     public static async create() {
         const conn = getBus("session");
-        const dbus = await promisify(conn.getInterface<DBusInterface>.bind(conn))(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE);
+
+        const dbus = await promisify
+            (conn.getInterface<DBusInterface>.bind(conn))(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE);
 
         const mpris = new Mpris(conn, dbus);
         await mpris.initPlayers();
