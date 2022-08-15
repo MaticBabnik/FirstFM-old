@@ -1,9 +1,8 @@
-import DBus, { getBus, DBusConnection } from "dbus";
-import { EventEmitter } from "node:events";
+import DBus from "dbus-next";
 
-import { MPRIS_PREFIX, MPRIS_PATH, MPRIS_INTERFACE, MPRIS_PLAYER_INTERFACE, DBUS_PROPERTIES, MPRIS_NO_TRACK } from "./constants"
-import { LoopStatus, Metadata, MPPRISIntreface, MPRISPlayerIntreface, MPRISPlayerIntrefaceMethods, MPRISPlayerIntrefaceProps, PlaybackStatus } from "./dbus-types";
-import { EmitherIBarelyEvenKnowHer, promisify, debug } from "../util";
+import { MPRIS_SERVICE_PREFIX, MPRIS_PATH, MPRIS_INTERFACE, MPRIS_PLAYER_INTERFACE, DBUS_PROPERTIES_INTERFACE, MPRIS_NO_TRACK } from "./constants.js"
+import { LoopStatus, Metadata, MPRISIntreface, MPRISPlayerIntreface, MPRISPlayerIntrefaceMethods, PlayerInterfaceProps, OrgMprisMediaPlayer2, PlaybackStatus, TypedPropertiesInterface } from "./dbus-types.js";
+import { Emitter, debug, unwrapVariant } from "../util.js";
 
 interface PlayerEvents {
     "metadatachange": (metadata: Metadata) => void;
@@ -17,7 +16,7 @@ interface PlayerEvents {
 }
 
 
-const KeyToEventMap: { [Property in keyof MPRISPlayerIntrefaceProps]?: keyof PlayerEvents } = {
+const KeyToEventMap: { [Property in keyof PlayerInterfaceProps]?: keyof PlayerEvents } = {
     "Metadata": "metadatachange",
     "PlaybackStatus": "playbackstatechange",
     "LoopStatus": "loopchange",
@@ -27,44 +26,44 @@ const KeyToEventMap: { [Property in keyof MPRISPlayerIntrefaceProps]?: keyof Pla
 };
 
 export class MprisPlayer
-    extends EmitherIBarelyEvenKnowHer<PlayerEvents>
-    implements MPRISPlayerIntrefaceProps, MPRISPlayerIntrefaceMethods {
+    extends Emitter<PlayerEvents>
+    implements PlayerInterfaceProps, MPRISPlayerIntrefaceMethods {
 
     //#region DBUS Methods
     public async Next() {
-        await promisify(this.player.Next.bind(this.player))();
+        await this.player.Next();
     }
 
     public async Previous() {
-        await promisify(this.player.Previous.bind(this.player))();
+        await this.player.Previous();
     }
 
     public async PlayPause() {
-        await promisify(this.player.PlayPause.bind(this.player))();
+        await this.player.PlayPause();
     }
 
     public async Play() {
-        await promisify(this.player.Play.bind(this.player))();
+        await this.player.Play();
     }
 
     public async Pause() {
-        await promisify(this.player.Pause.bind(this.player))();
+        await this.player.Pause();
     }
 
     public async Stop() {
-        await promisify(this.player.Stop.bind(this.player))();
+        await this.player.Stop();
     }
 
     public async Seek(position: number) {
-        await promisify(this.player.Seek.bind(this.player))(position);
+        await this.player.Seek(position)
     }
 
     public async SetPosition(trackid: string, position: number) {
-        await promisify(this.player.SetPosition.bind(this.player))(trackid, position);
+        await this.player.SetPosition(trackid, position)
     }
 
     public async OpenUri(uri: string) {
-        await promisify(this.player.OpenUri.bind(this.player))(uri);
+        await this.player.OpenUri(uri);
     }
     //#endregion DBUS Methods
 
@@ -139,40 +138,32 @@ export class MprisPlayer
     }
 
     public set Volume(val: number) {
-        this.player.setProperty("Volume", val, (err) => {
-            if (!err) {
-                this.playerProperties.Volume = val;
-            }
-        });
+        this.properties.Set(MPRIS_PLAYER_INTERFACE, "Volume", new DBus.Variant('d', val)).then(() => {
+            this.playerProperties.Volume = val;
+        }).catch(() => { })
     }
 
     public set Rate(val: number) {
-        this.player.setProperty("Rate", val, (err) => {
-            if (!err) {
-                this.playerProperties.Rate = val;
-            }
-        });
+        this.properties.Set(MPRIS_PLAYER_INTERFACE, "Rate", new DBus.Variant('d', val)).then(() => {
+            this.playerProperties.Rate = val;
+        }).catch(() => { })
     }
 
     public set LoopStatus(val: LoopStatus) {
-        this.player.setProperty("LoopStatus", val, (err) => {
-            if (!err) {
-                this.playerProperties.LoopStatus = val;
-            }
-        });
+        this.properties.Set(MPRIS_PLAYER_INTERFACE, "LoopStatus", new DBus.Variant('s', val)).then(() => {
+            this.playerProperties.LoopStatus = val;
+        }).catch(() => { })
     }
 
     public set Shuffle(val: boolean) {
-        this.player.setProperty("Shuffle", val, (err) => {
-            if (!err) {
-                this.playerProperties.Shuffle = val;
-            }
-        });
+        this.properties.Set(MPRIS_PLAYER_INTERFACE, "Shuffle", new DBus.Variant('b', val)).then(() => {
+            this.playerProperties.Shuffle = val;
+        }).catch(() => { })
     }
 
     //#endregion DBUS Props
 
-    protected playerProperties: MPRISPlayerIntrefaceProps = {
+    protected playerProperties: PlayerInterfaceProps = {
         PlaybackStatus: PlaybackStatus.Stopped,
         Rate: 1,
         Metadata: {
@@ -193,51 +184,63 @@ export class MprisPlayer
     protected lastPositionUpdate: number = Date.now();
 
     protected updatePositonTracking(time: number) {
+        console.assert(typeof time === "number");
         this.playerProperties.Position = time;
-
         this.lastPositionUpdate = Date.now();
     }
 
     public async fetchProperties() {
-        this.playerProperties = <MPRISPlayerIntrefaceProps>await promisify(this.player.getProperties.bind(this.player))()
+        const newProps = await this.properties.GetAll(MPRIS_PLAYER_INTERFACE);
+
+        for (const key in newProps) {
+            //@ts-ignore ; typescript is not smart enough to understand that this is a key of the interface
+            //or im just stupid
+            this.playerProperties[key] = unwrapVariant(newProps[key]);
+        }
     }
 
     protected constructor(
         public readonly name: string,
-        protected mpris: DBus.DBusInterface<MPPRISIntreface>,
-        protected player: DBus.DBusInterface<MPRISPlayerIntreface>,
-        protected changed: DBus.DBusInterface<EventEmitter>
+        protected mpris: MPRISIntreface,
+        protected player: MPRISPlayerIntreface,
+        protected properties: TypedPropertiesInterface<OrgMprisMediaPlayer2>
     ) {
         super();
 
-        changed.on("PropertiesChanged", (iface: string, properties: Partial<MPRISPlayerIntrefaceProps>) => {
+        properties.on("PropertiesChanged", (iface, properties) => {
             if (iface === MPRIS_PLAYER_INTERFACE) {
-                this.playerProperties = { ...this.playerProperties, ...properties };
+                const newProps: Partial<PlayerInterfaceProps> = {};
+
+                Object.keys(properties).forEach(key => {
+                    //@ts-ignore; no idea how to type this
+                    newProps[key] = unwrapVariant(<DBus.Variant<any>>properties[key]);
+                });
+
+                this.playerProperties = { ...newProps, ...this.playerProperties };
 
                 //get current position before sending any events; might not be the best but it ensures the position is accurate
-                this.player.getProperty("Position", (err, position) => {
-                    if (!err) this.updatePositonTracking(<number><any>position);
+                this.properties.Get(MPRIS_PLAYER_INTERFACE, "Position").then(position => {
+                    this.updatePositonTracking(Number(position.value));
 
-                    //emit the event
-                    (<Array<keyof MPRISPlayerIntrefaceProps>><any>Object.keys(properties)).forEach((key) => {
-                        debug(`[${this.name}] '${key}' changed to ${properties[key]}`);
+                    (<Array<keyof PlayerInterfaceProps>><any>Object.keys(newProps)).forEach((key) => {
+                        debug(`[${this.name}] '${key}' changed to ${newProps[key]}`);
                         const event = KeyToEventMap[key];
                         if (event) {
                             //@ts-ignore ; can't be bothered to fix the type error
-                            this.emit(event, properties[key]);
+                            this.emit(event, newProps[key]);
                         }
                     });
-                });
-
+                }).catch(() => { });
             }
         });
 
-        player.on("Seeked", (time: number) => {
+        player.on("Seeked", (t: BigInt) => {
+            const time = Number(t);
+            debug({ e: 'seek', time, t, ct: this.Position })
             const oldTime = this.Position;
-
             this.updatePositonTracking(time);
             this.emit("seeked", time, oldTime);
-        })
+        });
     }
 
     /** @internal */
@@ -245,20 +248,22 @@ export class MprisPlayer
         this.emit('destroyed');
 
         this.player.removeAllListeners();
-        this.changed.removeAllListeners();
+        this.properties.removeAllListeners();
         this.removeAllListeners();
     }
 
-    public static async fromName(name: string, connection: DBus.DBusConnection): Promise<MprisPlayer> {
+    public static async fromName(name: string, connection: DBus.MessageBus): Promise<MprisPlayer> {
 
-        const interfaces = await Promise.all([
-            promisify(connection.getInterface<MPPRISIntreface>.bind(connection))(MPRIS_PREFIX + name, MPRIS_PATH, MPRIS_INTERFACE),
-            promisify(connection.getInterface<MPRISPlayerIntreface>.bind(connection))(MPRIS_PREFIX + name, MPRIS_PATH, MPRIS_PLAYER_INTERFACE),
-            promisify(connection.getInterface<EventEmitter>.bind(connection))(MPRIS_PREFIX + name, MPRIS_PATH, DBUS_PROPERTIES)
-        ]);
+        const playerObject = await connection.getProxyObject(MPRIS_SERVICE_PREFIX + name, MPRIS_PATH);
 
-        const player = new MprisPlayer(name, ...interfaces);
+        const mpris = playerObject.getInterface<MPRISIntreface>(MPRIS_INTERFACE);
+        const mprisPlayer = playerObject.getInterface<MPRISPlayerIntreface>(MPRIS_PLAYER_INTERFACE);
+        const properties = playerObject.getInterface<TypedPropertiesInterface<OrgMprisMediaPlayer2>>(DBUS_PROPERTIES_INTERFACE);
+
+        const player = new MprisPlayer(name, mpris, mprisPlayer, properties);
+
         await player.fetchProperties()
+
         return player;
     }
 

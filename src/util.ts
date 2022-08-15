@@ -1,9 +1,31 @@
 import { EventEmitter } from 'events';
+import { Variant } from "dbus-next";
 
 type EventMap = Record<string, any>;
 type EventKey<T extends EventMap> = string & keyof T;
 
-export abstract class EmitherIBarelyEvenKnowHer<T extends EventMap> extends EventEmitter {
+export function unwrapVariant<T>(variant: Variant<T>): T {
+    let out = variant.value;
+    if (typeof out === 'bigint') {
+        //@ts-ignore
+        return Number(out);
+    }
+
+    if (typeof out !== 'object') {
+        return out;
+    }
+
+    for (const key in out) {
+        if (out[key] instanceof Variant) {
+            //@ts-ignore; runtime safety is thrown out of the window if the interface is invalid so it doesn't make sense to overengineer this
+            out[key] = unwrapVariant(out[key]);
+        }
+    }
+
+    return out;
+}
+
+export abstract class Emitter<T extends EventMap> extends EventEmitter {
     protected constructor() {
         super();
     }

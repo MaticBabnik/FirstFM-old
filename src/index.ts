@@ -12,8 +12,10 @@ Mpris.create().then(mpris => {
 
         if (!playerAllowList.find(x => x.test(player.name))) return;
 
-        console.log(`Found player ${player.name}`);
-        debug(player);
+        player.on('seeked',(np,op)=> {
+            console.log(`${player.name} seeked from ${op/1000} to ${np/1000}`);
+        });
+        
         const s = new PlayerScrobbler(player);
         s.on('scrobble', (playerName, metadata) => {
             console.log(`${playerName} scrobbled ${metadata['xesam:title']}`);

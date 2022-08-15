@@ -1,17 +1,39 @@
-import {EmitherIBarelyEvenKnowHer} from '../util';
+import * as DBus from 'dbus-next';
 
-interface DBusEvents {
-    NameOwnerChanged: (name: string, old_owner: string, new_owner: string) => void;
+//#region DBus interface
+export interface DBusInterface extends DBus.ClientInterface {
+    ListNames(): Promise<string[]>;
+    on(e: "NameOwnerChanged", listener: (name: string, old_owner: string, new_owner: string) => void): this;
+}
+//#endregion DBus interface
+
+//#region DBus Properties interface
+
+// interface definition = key:type
+export type Interface = Record<string, any>;
+// prop in interface
+export type PropOf<I extends Interface> = string & keyof I;
+
+// path definition = key:interface
+export type InterfaceMap = Record<string, Interface>;
+// interface in path
+export type InterfaceOf<IM extends InterfaceMap> = string & keyof IM;
+
+type Variantify<I extends Interface> = {
+    [P in PropOf<I>]: DBus.Variant<I[P]>
 }
 
-export interface DBusInterface extends EmitherIBarelyEvenKnowHer<DBusEvents> {
-    ListNames: (cb: (err: any, res: string[]) => any) => any;
+export interface TypedPropertiesInterface<Path extends InterfaceMap> extends DBus.ClientInterface {
+    Get<IF extends InterfaceOf<Path>, P extends PropOf<Path[IF]>>(interfaceName: IF, propName: P): Promise<DBus.Variant<Path[IF][P]>>;
+    Set<IF extends InterfaceOf<Path>, P extends PropOf<Path[IF]>>(interfaceName: IF, propName: P, value: DBus.Variant<Path[IF][P]>): Promise<void>
+    GetAll<IF extends InterfaceOf<Path>>(interfaceName: IF): Promise<Variantify<Path[IF]>>;
+
+    on<IF extends InterfaceOf<Path>>(event: 'PropertiesChanged', listener: (interfaceName: IF, changedProps: Partial<Variantify<Path[IF]>>, invalidatedProps: PropOf<Path[IF]>[]) => void): this;
 }
+//#endregion DBus Properties interface
 
-export interface MPPRISIntreface {
-    Raise(): void;
-    Quit(): void;
-
+//#region MPRIS types
+interface MPRISInterfaceProps {
     CanQuit: boolean;
     Fullscreen?: boolean;
     CanSetFullscreen?: boolean;
@@ -23,9 +45,13 @@ export interface MPPRISIntreface {
     SupportedMimeTypes: string[];
 }
 
+export interface MPRISIntreface extends DBus.ClientInterface {
+    Raise(): void;
+    Quit(): void
+}
+//#endregion MPRIS types
 
-
-
+//#region MPRIS Player types
 export interface Metadata extends Record<string, any> {
     'mpris:trackid': string;
 
@@ -65,7 +91,7 @@ export enum LoopStatus {
     Playlist = 'Playlist'
 }
 
-export interface MPRISPlayerIntrefaceProps {
+export interface PlayerInterfaceProps {
     PlaybackStatus: PlaybackStatus;
     LoopStatus?: LoopStatus;
     Rate: number;
@@ -95,20 +121,25 @@ export interface MPRISPlayerIntrefaceMethods {
     OpenUri(uri: string): void;
 }
 
-type DBusCallback<T> = (err: any, res: T) => void;
-
-interface MPRISPlayerEvents {
-    Seeked: (time: number) => void;
+export interface MPRISPlayerIntrefaceProps extends Omit<PlayerInterfaceProps, "Position"> {
+    Position: BigInt;
 }
 
-export interface MPRISPlayerIntreface extends MPRISPlayerIntrefaceProps, EmitherIBarelyEvenKnowHer<MPRISPlayerEvents> {
-    Next(cb: DBusCallback<never>): void;
-    Previous(cb: DBusCallback<never>): void;
-    Pause(cb: DBusCallback<never>): void;
-    PlayPause(cb: DBusCallback<never>): void;
-    Stop(cb: DBusCallback<never>): void;
-    Play(cb: DBusCallback<never>): void;
-    Seek(offset: number, cb: DBusCallback<never>): void;
-    SetPosition(trackId: string, position: number, cb: DBusCallback<never>): void;
-    OpenUri(uri: string, cb: DBusCallback<never>): void;
+export interface MPRISPlayerIntreface extends DBus.ClientInterface {
+    Next(): Promise<void>;
+    Previous(): Promise<void>;
+    Pause(): Promise<void>;
+    PlayPause(): Promise<void>;
+    Stop(): Promise<void>;
+    Play(): Promise<void>;
+    Seek(offset: number): Promise<void>;
+    SetPosition(trackId: string, position: number): Promise<void>;
+    OpenUri(uri: string): Promise<void>;
+}
+
+//#endregion MPRIS Player types
+
+export interface OrgMprisMediaPlayer2 extends InterfaceMap {
+    'org.mpris.MediaPlayer2': MPRISInterfaceProps,
+    'org.mpris.MediaPlayer2.Player': MPRISPlayerIntrefaceProps
 }
