@@ -1,10 +1,10 @@
-import {Emitter} from './util';
+import {EmitherIBarelyEvenKnowHer} from '../util';
 
 interface DBusEvents {
     NameOwnerChanged: (name: string, old_owner: string, new_owner: string) => void;
 }
 
-export interface DBusInterface extends Emitter<DBusEvents> {
+export interface DBusInterface extends EmitherIBarelyEvenKnowHer<DBusEvents> {
     ListNames: (cb: (err: any, res: string[]) => any) => any;
 }
 
@@ -101,7 +101,7 @@ interface MPRISPlayerEvents {
     Seeked: (time: number) => void;
 }
 
-export interface MPRISPlayerIntreface extends MPRISPlayerIntrefaceProps, Emitter<MPRISPlayerEvents> {
+export interface MPRISPlayerIntreface extends MPRISPlayerIntrefaceProps, EmitherIBarelyEvenKnowHer<MPRISPlayerEvents> {
     Next(cb: DBusCallback<never>): void;
     Previous(cb: DBusCallback<never>): void;
     Pause(cb: DBusCallback<never>): void;

@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 
 import { MPRIS_PREFIX, MPRIS_PATH, MPRIS_INTERFACE, MPRIS_PLAYER_INTERFACE, DBUS_PROPERTIES, MPRIS_NO_TRACK } from "./constants"
 import { LoopStatus, Metadata, MPPRISIntreface, MPRISPlayerIntreface, MPRISPlayerIntrefaceMethods, MPRISPlayerIntrefaceProps, PlaybackStatus } from "./dbus-types";
-import { Emitter, promisify } from "./util";
+import { EmitherIBarelyEvenKnowHer, promisify, debug } from "../util";
 
 interface PlayerEvents {
     "metadatachange": (metadata: Metadata) => void;
@@ -13,6 +13,7 @@ interface PlayerEvents {
     "ratechange": (rate: number) => void;
     "volumechange": (volume: number) => void;
     "seeked": (newPosition: number, oldPosition: number) => void;
+    "destroyed": () => void;
 }
 
 
@@ -25,7 +26,9 @@ const KeyToEventMap: { [Property in keyof MPRISPlayerIntrefaceProps]?: keyof Pla
     "Volume": "volumechange",
 };
 
-export class MprisPlayer extends EventEmitter implements MPRISPlayerIntrefaceProps, MPRISPlayerIntrefaceMethods, Emitter<PlayerEvents> {
+export class MprisPlayer
+    extends EmitherIBarelyEvenKnowHer<PlayerEvents>
+    implements MPRISPlayerIntrefaceProps, MPRISPlayerIntrefaceMethods {
 
     //#region DBUS Methods
     public async Next() {
@@ -195,6 +198,10 @@ export class MprisPlayer extends EventEmitter implements MPRISPlayerIntrefacePro
         this.lastPositionUpdate = Date.now();
     }
 
+    public async fetchProperties() {
+        this.playerProperties = <MPRISPlayerIntrefaceProps>await promisify(this.player.getProperties.bind(this.player))()
+    }
+
     protected constructor(
         public readonly name: string,
         protected mpris: DBus.DBusInterface<MPPRISIntreface>,
@@ -213,9 +220,10 @@ export class MprisPlayer extends EventEmitter implements MPRISPlayerIntrefacePro
 
                     //emit the event
                     (<Array<keyof MPRISPlayerIntrefaceProps>><any>Object.keys(properties)).forEach((key) => {
-                        console.log(`${key} changed`);
+                        debug(`[${this.name}] '${key}' changed to ${properties[key]}`);
                         const event = KeyToEventMap[key];
                         if (event) {
+                            //@ts-ignore ; can't be bothered to fix the type error
                             this.emit(event, properties[key]);
                         }
                     });
@@ -232,6 +240,15 @@ export class MprisPlayer extends EventEmitter implements MPRISPlayerIntrefacePro
         })
     }
 
+    /** @internal */
+    public cleanup() {
+        this.emit('destroyed');
+
+        this.player.removeAllListeners();
+        this.changed.removeAllListeners();
+        this.removeAllListeners();
+    }
+
     public static async fromName(name: string, connection: DBus.DBusConnection): Promise<MprisPlayer> {
 
         const interfaces = await Promise.all([
@@ -245,7 +262,4 @@ export class MprisPlayer extends EventEmitter implements MPRISPlayerIntrefacePro
         return player;
     }
 
-    public async fetchProperties() {
-        this.playerProperties = <MPRISPlayerIntrefaceProps>await promisify(this.player.getProperties.bind(this.player))()
-    }
 }

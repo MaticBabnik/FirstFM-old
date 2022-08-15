@@ -2,27 +2,34 @@ import { EventEmitter } from 'node:events';
 import DBus, { getBus, DBusConnection } from "dbus";
 
 import { MprisPlayer } from './player';
-import { promisify } from './util';
+import { promisify, EmitherIBarelyEvenKnowHer, debug } from '../util';
 import { DBusInterface } from "./dbus-types"
 import { DBUS_INTERFACE, DBUS_PATH, DBUS_SERVICE, MPRIS_PREFIX } from './constants';
 
-export class Mpris {
+interface MprisEvents {
+    "playeradded": (player: MprisPlayer) => void;
+}
+
+export class Mpris extends EmitherIBarelyEvenKnowHer<MprisEvents> {
     public players: Map<string, MprisPlayer>;
 
     protected constructor(protected connection: DBusConnection, protected dbus: DBus.DBusInterface<DBusInterface>) {
+        super();
         this.players = new Map<string, MprisPlayer>();
     }
 
+
     protected destroyPlayer(id: string) {
-        console.log({ type: "destroyPlayer", id });
+        this.players.get(id)?.cleanup();
         this.players.delete(id);
     }
 
     protected async createPlayer(id: string) {
         try {
             const player = await MprisPlayer.fromName(id, this.connection);
-
+            debug(`Creating ${id}`);
             this.players.set(id, player);
+            this.emit("playeradded", player);
         } catch {
             console.log(`Could not create player ${id}`);
         }
@@ -48,12 +55,12 @@ export class Mpris {
     }
 
     public static async create() {
-        const conn = getBus("session");
+        const connnection: DBus.DBusConnection = getBus("session");
 
         const dbus = await promisify
-            (conn.getInterface<DBusInterface>.bind(conn))(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE);
+            (connnection.getInterface<DBusInterface>.bind(connnection))(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE);
 
-        const mpris = new Mpris(conn, dbus);
+        const mpris = new Mpris(connnection, dbus);
         await mpris.initPlayers();
         return mpris;
     }
